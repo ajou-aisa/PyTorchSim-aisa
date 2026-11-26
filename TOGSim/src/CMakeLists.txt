@@ -35,3 +35,11 @@ add_executable(engine_smoke EXCLUDE_FROM_ALL
 target_link_libraries(engine_smoke PRIVATE
     togsim_engine
 )
+
+add_executable(memory_port_smoke EXCLUDE_FROM_ALL
+    "${CMAKE_SOURCE_DIR}/tests/memory_port_smoke.cc"
+)
+
+target_link_libraries(memory_port_smoke PRIVATE
+    togsim_engine
+)
