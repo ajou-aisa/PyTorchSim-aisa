@@ -6,24 +6,14 @@
 #include <atomic>
 
 #include "Simulator.h"
-#include "TileGraphParser.h"
 #include "helper/CommandLineParser.h"
 
 namespace fs = std::filesystem;
 namespace po = boost::program_options;
 
 
-void launchKernel(Simulator* simulator, unsigned int kernel_id, std::string onnx_path, std::string attribute_path, const YAML::Node& config_yaml, cycle_type request_time=0, int partition_id=0, int device_id=0) {
-  auto graph_praser = TileGraphParser(onnx_path, attribute_path, config_yaml);
-  std::unique_ptr<TileGraph>& tile_graph = graph_praser.get_tile_graph();
-  tile_graph->set_arrival_time(request_time ? request_time : simulator->get_core_cycle());
-  tile_graph->set_kernel_id(kernel_id);
-  spdlog::info("[Scheduler {}] Enqueued kernel_id: {}, tog_path: {}, operation: {}, request_time_cycles: {}",
-               partition_id, kernel_id, onnx_path, tile_graph->get_name(), request_time);
-  simulator->enqueue_graph(partition_id, std::move(tile_graph));
-}
 
-void process_trace_file(Simulator* simulator, std::string trace_file_path, const YAML::Node& config_yaml) {
+void process_trace_file(Simulator* simulator, std::string trace_file_path) {
   // Open trace file (can be FIFO or regular file)
   std::ifstream trace_file;
   trace_file.open(trace_file_path);
@@ -70,7 +60,12 @@ void process_trace_file(Simulator* simulator, std::string trace_file_path, const
 
     try {
       if (command_type == "LAUNCH_KERNEL") {
-        launchKernel(simulator, kernel_id, tog_path, attribute_path, config_yaml, timestamp, stream_index, device_index);
+        simulator->enqueue_graph_from_files(
+            kernel_id,
+            tog_path,
+            attribute_path,
+            timestamp,
+            stream_index);
       } else if (command_type == "DEVICE_SYNC") {
         simulator->cycle();
         spdlog::info("[Device {}] Device synchronization completed", device_index);
@@ -85,14 +80,6 @@ void process_trace_file(Simulator* simulator, std::string trace_file_path, const
   simulator->cycle();
 }
 
-Simulator* create_simulator(const std::string& config_path) {
-  YAML::Node config_yaml;
-  if (!loadConfig(config_path, config_yaml)) {
-    return nullptr;
-  }
-  SimulationConfig config = initialize_config(config_yaml, config_path);
-  return new Simulator(config, std::move(config_yaml));
-}
 
 int main(int argc, char** argv) {
   auto start = std::chrono::high_resolution_clock::now();
@@ -141,7 +128,7 @@ int main(int argc, char** argv) {
   /* Create simulator */
   cmd_parser.set_if_defined("config", &config_path);
 
-  auto simulator = create_simulator(config_path);
+  auto simulator = Simulator::from_config_file(config_path);
   if (!simulator) {
     spdlog::error("[TOGSim] Failed to load config file: {}", config_path);
     exit(1);
@@ -152,15 +139,14 @@ int main(int argc, char** argv) {
 
   if (!trace_file_path.empty()) {
     // Process trace file (unified mode: supports both FIFO and regular file)
-    process_trace_file(simulator, trace_file_path,
-                       simulator->get_hardware_config_yaml());
+    process_trace_file(simulator.get(), trace_file_path);
     spdlog::info("Simulation finished");
     simulator->print_core_stat();
   } else {
     spdlog::error("No trace file provided. Use --models_list to specify trace file path.");
     exit(1);
   }
-  delete simulator;
+  simulator.reset();
 
   /* Simulation time measurement */
   auto end = std::chrono::high_resolution_clock::now();

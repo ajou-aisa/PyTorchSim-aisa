@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <string>
 #include <yaml-cpp/yaml.h>
+#include <memory>
 #include "Common.h"
 #include "Core.h"
 #include "SparseCore.h"
@@ -24,6 +25,19 @@ namespace fs = std::filesystem;
 class Simulator {
  public:
   Simulator(SimulationConfig config, YAML::Node hardware_config_yaml);
+
+  // Create a simulator from a hardware configuration file.
+  static std::unique_ptr<Simulator> from_config_file(
+    const std::string& config_path);
+
+  // Load and enqueue a TileGraph from existing workload files.
+  void enqueue_graph_from_files(
+    unsigned int       kernel_id,
+    const std::string& onnx_path,
+    const std::string& attribute_path,
+    cycle_type         request_time = 0,
+    int                partition_id = 0);
+
   void enqueue_graph(int partion_id, std::unique_ptr<TileGraph> tile_graph) {
     if (partion_id < 0 || static_cast<uint32_t>(partion_id) >= _config.num_partition) {
       spdlog::error("[Enqueue_graph] Invalid partition_id: {} (valid range: 0 to {}). "

@@ -49,10 +49,24 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/extern/onnx" EXCLUDE_FROM_ALL)
 set_target_properties(onnx PROPERTIES FOLDER "extern/onnx")
 set_target_properties(onnx_proto PROPERTIES FOLDER "extern/onnx")
 
-target_include_directories(Simulator PUBLIC ${PROJECT_SOURCE_DIR}/extern/stonneCore/include)
-target_include_directories(Simulator PUBLIC ${PROJECT_SOURCE_DIR}/include)
-target_include_directories(Simulator PUBLIC ${PROJECT_SOURCE_DIR}/include/scheduler)
-target_include_directories(Simulator PUBLIC ${PROJECT_SOURCE_DIR}/src)
-target_include_directories(Simulator PUBLIC ${ONNX_INCLUDE_DIRS})
-target_link_libraries(Simulator booksim2 ramulator sstStonne)
-target_link_libraries(Simulator ${PROTOBUF_LIB} onnx_proto sstStonne ${CONAN_LIBS} stdc++fs)
+target_include_directories(togsim_engine PUBLIC
+    ${PROJECT_SOURCE_DIR}/extern/stonneCore/include
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/include/scheduler
+    ${PROJECT_SOURCE_DIR}/src
+    ${ONNX_INCLUDE_DIRS}
+)
+
+target_link_libraries(togsim_engine PUBLIC
+    booksim2
+    ramulator
+    sstStonne
+)
+
+target_link_libraries(togsim_engine PUBLIC
+    ${PROTOBUF_LIB}
+    onnx_proto
+    sstStonne
+    ${CONAN_LIBS}
+    stdc++fs
+)

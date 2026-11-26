@@ -1,8 +1,10 @@
 #include "Simulator.h"
+#include "TileGraphParser.h"
 
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 
 Simulator::Simulator(SimulationConfig config, YAML::Node hardware_config_yaml)
     : _config(config),
@@ -84,6 +86,46 @@ Simulator::Simulator(SimulationConfig config, YAML::Node hardware_config_yaml)
   // Initialize Scheduler
   for (int i=0; i<config.num_partition;i++)
     _partition_scheduler.push_back(std::make_unique<Scheduler>(Scheduler(config, &_core_cycles, &_core_time, i)));
+}
+
+std::unique_ptr<Simulator> Simulator::from_config_file(const std::string& config_path) {
+  YAML::Node config_yaml;
+
+  if (!loadConfig(config_path, config_yaml))
+    return nullptr;
+  
+  SimulationConfig config = initialize_config(config_yaml, config_path);
+
+  return std::make_unique<Simulator>(config, std::move(config_yaml));
+}
+
+void Simulator::enqueue_graph_from_files(
+    unsigned int       kernel_id,
+    const std::string& onnx_path,
+    const std::string& attribute_path,
+    cycle_type         request_time,
+    int                partition_id) {
+  
+  TileGraphParser graph_parser(
+      onnx_path, 
+      attribute_path,
+      _hardware_config_yaml);
+
+  auto& tile_graph = graph_parser.get_tile_graph();
+
+  tile_graph->set_arrival_time(request_time ? request_time : get_core_cycle());
+  tile_graph->set_kernel_id(kernel_id);
+
+  spdlog::info(
+      "[Scheduler {}] Enqueued kernel_id: {}, "
+      "tog_path: {}, operation: {}, request_time_cycles: {}",
+      partition_id,
+      kernel_id,
+      onnx_path,
+      tile_graph->get_name(),
+      request_time);
+
+  enqueue_graph(partition_id, std::move(tile_graph));
 }
 
 void Simulator::run_simulator() {
