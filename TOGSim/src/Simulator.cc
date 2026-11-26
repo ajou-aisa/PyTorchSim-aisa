@@ -5,6 +5,8 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <algorithm>
+#include <stdexcept>
 
 Simulator::Simulator(SimulationConfig config, YAML::Node hardware_config_yaml)
     : _config(config),
@@ -227,21 +229,11 @@ void Simulator::icnt_cycle() {
 }
 
 void Simulator::cycle() {
-  while (running() || _core_cycles < 1) {
-    set_cycle_mask();
-    // Core Cycle
-    if (IS_CORE_CYCLE(_cycle_mask))
-      core_cycle();
-
-    // DRAM cycle
-    if (IS_DRAM_CYCLE(_cycle_mask))
-      dram_cycle();
-
-    // Interconnect cycle
-    if (IS_ICNT_CYCLE(_cycle_mask))
-      icnt_cycle();
+  while (step()) {
+    // Execute until all pending work has completed.
   }
-  for (auto &core: _cores) {
+
+  for (auto &core : _cores) {
     core->check_tag();
   }
 }
@@ -303,4 +295,70 @@ void Simulator::print_core_stat()
     _cores[core_id]->print_stats();
   }
   spdlog::info("Total execution cycles: {}", _core_cycles);
+}
+
+bool Simulator::idle() {
+  return !running() && _core_cycles >= 1;
+}
+
+std::optional<uint64_t>
+Simulator::next_event_time_ps() {
+  if (idle())
+    return std::nullopt;
+
+  return std::min({
+      _core_time,
+      _dram_time,
+      _icnt_time
+  });
+}
+
+void Simulator::execute_event(uint64_t event_time_ps) {
+  _current_time_ps = event_time_ps;
+
+  set_cycle_mask();
+
+  // Preserve original clock-domain ordering.
+  if (IS_CORE_CYCLE(_cycle_mask))
+    core_cycle();
+
+  if (IS_DRAM_CYCLE(_cycle_mask))
+    dram_cycle();
+
+  if (IS_ICNT_CYCLE(_cycle_mask))
+    icnt_cycle();
+}
+
+bool Simulator::step() {
+  const auto next = next_event_time_ps();
+
+  if (!next.has_value())
+    return false;
+
+  execute_event(*next);
+
+  return true;
+}
+
+uint64_t Simulator::advance_to(uint64_t target_time_ps) {
+  if (target_time_ps < _current_time_ps)
+    throw std::invalid_argument(
+        "Cannot advance simulator backwards in time");
+
+  uint64_t executed_events = 0;
+
+  while (true) {
+    const auto next = next_event_time_ps();
+
+    if (!next.has_value())
+      break;
+
+    if (*next > target_time_ps)
+      break;
+
+    execute_event(*next);
+    ++executed_events;
+  }
+
+  return executed_events;
 }

@@ -26,9 +26,67 @@ int main(int argc, char** argv) {
         0,        // Request time
         0);       // Partition ID
 
+    // Execute the first event group.
+    const auto first = simulator->next_event_time_ps();
+
+    if (!first || !simulator->step() ||
+        simulator->current_time_ps() != *first) {
+    std::cerr << "STEP_FAIL\n";
+    return 1;
+    }
+
+    // Verify that advance_to() cannot execute a future event.
+    const auto next = simulator->next_event_time_ps();
+
+    if (!next || *next <= simulator->current_time_ps()) {
+    std::cerr << "NEXT_EVENT_FAIL\n";
+    return 1;
+    }
+
+    if (simulator->advance_to(*next - 1) != 0) {
+    std::cerr << "EVENT_BOUNDARY_FAIL\n";
+    return 1;
+    }
+
+    // Execute the remaining workload in bounded time windows.
+    uint64_t iterations = 0;
+
+    while (!simulator->idle()) {
+    const auto next_event = simulator->next_event_time_ps();
+
+    if (!next_event) {
+        std::cerr << "MISSING_EVENT_FAIL\n";
+        return 1;
+    }
+
+    const uint64_t target = *next_event + 100000;
+
+    const auto executed = simulator->advance_to(target);
+
+    const auto pending = simulator->next_event_time_ps();
+
+    if (executed == 0 ||
+        simulator->current_time_ps() > target ||
+        (pending && *pending <= target)) {
+        std::cerr << "ADVANCE_TO_FAIL\n";
+        return 1;
+    }
+
+    ++iterations;
+    }
+
+    // Preserve the existing final tag check.
     simulator->cycle();
 
     const auto cycles = simulator->get_core_cycle();
+
+    std::cout << "Final event time (ps): "
+            << simulator->current_time_ps() << '\n';
+
+    std::cout << "Advance iterations: "
+            << iterations << '\n';
+
+    std::cout << "BOUNDED_EXECUTION_PASS\n";
 
     simulator->print_core_stat();
 

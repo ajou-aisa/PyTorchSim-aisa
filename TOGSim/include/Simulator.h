@@ -5,6 +5,7 @@
 #include <string>
 #include <yaml-cpp/yaml.h>
 #include <memory>
+#include <optional>
 #include "Common.h"
 #include "Core.h"
 #include "SparseCore.h"
@@ -57,6 +58,14 @@ class Simulator {
   void cycle();
   const SimulationConfig& get_config() const { return _config; }
   const YAML::Node& get_hardware_config_yaml() const { return _hardware_config_yaml; }
+  // Event-based execution interface.
+  bool step();
+  uint64_t advance_to(uint64_t target_time_ps);
+  bool idle();
+  uint64_t current_time_ps() const {
+    return _current_time_ps;
+  }
+  std::optional<uint64_t> next_event_time_ps();
  private:
   void core_cycle();
   void dram_cycle();
@@ -64,6 +73,7 @@ class Simulator {
   bool running();
   void set_cycle_mask();
   uint32_t get_dest_node(mem_fetch *access);
+  void execute_event(uint64_t event_time_ps);
   SimulationConfig _config;
   YAML::Node _hardware_config_yaml;
   uint32_t _n_cores;
@@ -89,6 +99,9 @@ class Simulator {
   uint64_t _icnt_time;
   uint64_t _dram_time;
 
+  //Timestamp of last executed event group.
+  uint64_t _current_time_ps = 0;
+  
   // Cycle and mask
   uint64_t _core_cycles;
   uint32_t _cycle_mask;
