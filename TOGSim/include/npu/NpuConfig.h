@@ -8,13 +8,6 @@
 
 namespace togsim::npu
 {
-    enum class InputPacking : uint8_t
-    {
-        Unspecified = 0,
-        ByteAligned,
-        PackedInt4V1
-    };
-
     struct PoTALMetadataConfig
     {
         uint32_t scale_entries_per_column = 0;
@@ -23,12 +16,14 @@ namespace togsim::npu
     };
 
     // All hardware values are supplied by the caller (YAML or gem5 adapter).
-    // Zero/Unspecified means missing, not a hardware default. validate()
-    // checks structure only; arithmetic/timing support belongs to the Device.
+    // Zero/Unspecified means missing, not a hardware default. Bit widths are
+    // free options; SPAD rows are bit-packed (element i at bit i*input_bits),
+    // which equals byte arrays for 8-bit and PoTAL W4 packing ABI 1 for 4-bit.
+    // validate() checks structure only; RTL provenance and arithmetic/timing
+    // support belong to the Device and experiment records.
     struct NpuConfig
     {
         IsaRevision isa_revision = IsaRevision::Unspecified;
-        InputPacking input_packing = InputPacking::Unspecified;
         uint32_t input_bits = 0, array_output_bits = 0, accumulator_bits = 0;
         uint32_t dim = 0;
         uint32_t spad_banks = 0, spad_bank_rows = 0;
@@ -81,7 +76,7 @@ namespace togsim::npu
         {
             const auto arch = architecture();
 
-            if (input_bits == 0 || input_bits > 64 ||
+            if (input_bits == 0 || input_bits > 32 ||
                 array_output_bits == 0 || array_output_bits > 64 ||
                 accumulator_bits == 0 || accumulator_bits > 64 ||
                 accumulator_bits % 8 != 0 ||
@@ -91,42 +86,18 @@ namespace togsim::npu
                     "Invalid integer precision geometry");
             }
 
-            switch (input_packing)
-            {
-            case InputPacking::ByteAligned:
-                if (isa_revision == IsaRevision::PoTALW4AisaV1)
-                {
-                    throw std::invalid_argument(
-                        "PoTAL W4 contract requires packed INT4");
-                }
-                if (input_bits % 8 != 0)
-                {
-                    throw std::invalid_argument(
-                        "Byte-aligned input requires whole bytes");
-                }
-                break;
-
-            case InputPacking::PackedInt4V1:
-                if (input_bits != 4 ||
-                    isa_revision != IsaRevision::PoTALW4AisaV1)
-                {
-                    throw std::invalid_argument(
-                        "Packed INT4 requires the PoTAL W4 contract");
-                }
-                break;
-
-            case InputPacking::Unspecified:
-            default:
-                throw std::invalid_argument(
-                    "Missing or unknown input packing");
-            }
-
             if (dim < 2 ||
                 dim > 65535 ||
                 !is_power_of_two(dim))
             {
                 throw std::invalid_argument(
                     "Invalid array dimension");
+            }
+
+            if ((uint64_t(dim) * input_bits) % 8 != 0)
+            {
+                throw std::invalid_argument(
+                    "Packed SPAD row must be whole bytes");
             }
 
             if (spad_banks < 2 ||

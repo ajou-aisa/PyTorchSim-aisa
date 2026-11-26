@@ -34,13 +34,11 @@ struct Expected {
   uint64_t acc_kib;
 };
 
-static NpuConfig make(IsaRevision revision, InputPacking packing,
-                      uint32_t input_bits, uint32_t array_output_bits,
+static NpuConfig make(IsaRevision revision, uint32_t input_bits, uint32_t array_output_bits,
                       uint32_t dim, uint32_t spad_bank_rows, uint32_t acc_rows,
                       std::optional<PoTALMetadataConfig> potal) {
   NpuConfig c;
   c.isa_revision = revision;
-  c.input_packing = packing;
   c.input_bits = input_bits;
   c.array_output_bits = array_output_bits;
   c.accumulator_bits = 32;
@@ -59,23 +57,23 @@ int main() {
   // Source-audited geometries (design status document, section 7.2).
   const Expected cases[] = {
       {"gemmini_int8_d16",
-       make(IsaRevision::GemminiAisaV1, InputPacking::ByteAligned, 8, 20, 16,
+       make(IsaRevision::GemminiAisaV1, 8, 20, 16,
             4096, 1024, std::nullopt),
        512, 16, 64, 256, 64},
       {"potal_int8_d16",
-       make(IsaRevision::PoTALAisaV1, InputPacking::ByteAligned, 8, 20, 16,
+       make(IsaRevision::PoTALAisaV1, 8, 20, 16,
             4096, 1024, PoTALMetadataConfig{256, 32, false}),
        512, 16, 64, 256, 64},
       {"potal_int8_d32",
-       make(IsaRevision::PoTALAisaV1, InputPacking::ByteAligned, 8, 21, 32,
+       make(IsaRevision::PoTALAisaV1, 8, 21, 32,
             2048, 512, PoTALMetadataConfig{256, 64, false}),
        256, 32, 128, 256, 64},
       {"potal_int8_d64",
-       make(IsaRevision::PoTALAisaV1, InputPacking::ByteAligned, 8, 22, 64,
+       make(IsaRevision::PoTALAisaV1, 8, 22, 64,
             1024, 256, PoTALMetadataConfig{256, 128, false}),
        128, 64, 256, 256, 64},
       {"potal_int4_d32",
-       make(IsaRevision::PoTALW4AisaV1, InputPacking::PackedInt4V1, 4, 32, 32,
+       make(IsaRevision::PoTALAisaV1, 4, 32, 32,
             2048, 512, PoTALMetadataConfig{256, 64, false}),
        256, 16, 128, 128, 64},
   };
@@ -97,13 +95,16 @@ int main() {
 
   const NpuConfig gemmini = cases[0].config;
   const NpuConfig potal = cases[1].config;
-  const NpuConfig w4 = cases[4].config;
 
   expect_invalid(NpuConfig{}, "all fields missing", [](NpuConfig&) {});
   expect_invalid(gemmini, "missing revision",
                  [](NpuConfig& c) { c.isa_revision = IsaRevision::Unspecified; });
-  expect_invalid(gemmini, "missing packing",
-                 [](NpuConfig& c) { c.input_packing = InputPacking::Unspecified; });
+  expect_invalid(gemmini, "input wider than 32 bits",
+                 [](NpuConfig& c) { c.input_bits = 33; });
+  expect_invalid(gemmini, "SPAD row not whole bytes", [](NpuConfig& c) {
+    c.dim = 2;
+    c.input_bits = 3;
+  });
   expect_invalid(gemmini, "zero dim", [](NpuConfig& c) { c.dim = 0; });
   expect_invalid(gemmini, "zero dma bus",
                  [](NpuConfig& c) { c.dma_bus_bits = 0; });
@@ -123,16 +124,29 @@ int main() {
                  [](NpuConfig& c) { c.potal.reset(); });
   expect_invalid(potal, "PoTAL zero index entries",
                  [](NpuConfig& c) { c.potal->index_entries_per_buffer = 0; });
-  expect_invalid(w4, "W4 with byte-aligned INT8", [](NpuConfig& c) {
-    c.input_packing = InputPacking::ByteAligned;
-    c.input_bits = 8;
-  });
-  expect_invalid(potal, "packed INT4 on INT8 PoTAL contract", [](NpuConfig& c) {
-    c.input_packing = InputPacking::PackedInt4V1;
-    c.input_bits = 4;
-  });
-  expect_invalid(gemmini, "byte-aligned 4-bit input",
-                 [](NpuConfig& c) { c.input_bits = 4; });
+
+  // Option-mode widths without an audited RTL geometry must still be
+  // structurally valid; provenance is recorded outside NpuConfig.
+  const Expected hypothetical[] = {
+      {"gemmini_int4_d32",
+       make(IsaRevision::GemminiAisaV1, 4, 16, 32, 2048, 512, std::nullopt),
+       256, 16, 128, 128, 64},
+      {"potal_int4_d16",
+       make(IsaRevision::PoTALAisaV1, 4, 16, 16, 4096, 1024,
+            PoTALMetadataConfig{256, 32, false}),
+       512, 8, 64, 128, 64},
+      {"gemmini_int16_d16",
+       make(IsaRevision::GemminiAisaV1, 16, 32, 16, 4096, 1024, std::nullopt),
+       512, 32, 64, 512, 64},
+  };
+  for (const auto& e : hypothetical) {
+    e.config.validate();
+    check(e.config.spad_row_bytes() == e.spad_row_bytes,
+          std::string(e.name) + ": spad row bytes");
+    check(e.config.spad_capacity_bytes() == e.spad_kib * 1024,
+          std::string(e.name) + ": spad capacity");
+    std::cout << "OPTION_PASS " << e.name << "\n";
+  }
 
   std::cout << "NPU_CONFIG_PASS\n";
   return 0;

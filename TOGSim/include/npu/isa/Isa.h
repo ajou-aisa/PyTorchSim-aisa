@@ -18,8 +18,9 @@ namespace togsim::npu
     {
         Unspecified   = 0,
         GemminiAisaV1 = 1, // gemmini-aisa @ 185293e
-        PoTALAisaV1   = 2, // chipyard-aisa @ fab3d262, potal/
-        PoTALW4AisaV1 = 3  // chipyard-aisa @ fab3d262, potalw4/
+        // Simulator-defined PoTAL behavior; chipyard-aisa @ fab3d262
+        // potal/ and potalw4/ are reference profiles, not separate contracts.
+        PoTALAisaV1   = 2
     };
 
     inline Architecture architecture_of(IsaRevision revision)
@@ -30,7 +31,6 @@ namespace togsim::npu
             return Architecture::Gemmini;
 
         case IsaRevision::PoTALAisaV1:
-        case IsaRevision::PoTALW4AisaV1:
             return Architecture::PoTAL;
 
         case IsaRevision::Unspecified:
